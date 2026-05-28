@@ -1,96 +1,132 @@
 # Custom LLM Harness
 
-A minimal terminal chat harness for the Anthropic API, written in TypeScript. It
-wraps the agent loop (prompt → `tool_use` → `tool_result` → repeat) around a
-small set of local tools so Claude can read, write, list, and shell out inside
-the project directory.
+Минимальный терминальный чат-агент, написанный на TypeScript. Использует Anthropic SDK
+для общения с локальной моделью через Ollama API, оборачивая цикл агента
+(prompt → `tool_use` → `tool_result` → повтор) вокруг набора локальных инструментов
+и внешних инструментов MCP-сервера.
 
-## Features
+## Возможности
 
-- REPL chat with persistent in-process history (trimmed at safe turn boundaries)
-- Markdown rendering of model replies (`cli-markdown`)
-- Raw-mode input line with gray-highlight background, wide-char / emoji width
-  handling, arrow keys, Home/End, Delete, Ctrl-A/E, window resize
-- "Thinking" spinner with randomized verbs
-- Tool calls shown as one-line summaries (`[Tool call] bold_name details`)
-- Sandboxed filesystem tools (no absolute paths, no `..` escapes, write size
-  cap)
-- Bash tool with cwd, timeout, and output-buffer caps
+- REPL-чат с постоянной внутрипроцессной историей диалога (обрезается по лимиту ходов)
+- Рендеринг ответов модели из Markdown в ANSI (`cli-markdown`)
+- Спиннер во время ожидания ответа (`ora`)
+- Локальные инструменты для работы с файлами, поиска по коду и выполнения команд
+- Интеграция с MCP-сервером (Model Context Protocol) для расширения набора инструментов
+- Ограничение на количество попыток агента (по умолчанию 5)
 
-## Requirements
+## Требования
 
 - Node.js 20+
-- An Anthropic API key
+- Запущенный Ollama сервер (по умолчанию `http://localhost:11434`)
+- MCP-сервер, доступный по `http://localhost:3000/mcp`
 
-## Setup
+## Установка
 
 ```sh
 npm install
 cp .env.local.example .env.local
-# edit .env.local and set ANTHROPIC_API_KEY
+# при необходимости отредактируйте .env.local
 ```
 
-## Run
+## Запуск
 
 ```sh
-npm start        # the REPL
+npm start        # REPL с hot-reload (tsx --watch)
 npm run typecheck
 ```
 
-Type `/exit` to leave the REPL. Ctrl-C also works.
+Наберите `exit` (или нажмите Ctrl-C), чтобы выйти из REPL.
 
-## Project layout
+## Структура проекта
 
 ```
 src/
-  index.ts             REPL entry
-  client.ts            Anthropic SDK instance
-  config.ts            model, token, size, and timeout constants
-  input.ts             raw-mode line reader with highlighted background
-  render.ts            markdown → ANSI
-  prompts/system.ts    system prompt
-  agent/loop.ts        send → tool_use → tool_result loop
+  index.ts                    точка входа REPL
+  config.ts                   константы: модель, токены, лимиты
+  types.ts                    типы Tool, ToolResult, ChatMessage
+  llm/
+    anthropic-client.ts       клиент LLM через Anthropic SDK → Ollama
+    types.ts                  интерфейсы LLMClient, LLMResponse
+  agent/
+    loop.ts                   цикл агента: send → tool_use → tool_result
+    conversation-history.ts   управление историей сообщений с обрезкой
+  ui/
+    console-ui.ts             консольный интерфейс: readline, спиннер, markdown
+  prompts/
+    system.ts                 системный промпт на русском языке
   tools/
-    index.ts           registry (definitions + handler map)
-    safe-path.ts       sandboxed path resolver
-    read-file.ts       read_file
-    write-file.ts      write_file (size-capped)
-    list-dir.ts        list_dir (JSON { name, type })
-    bash.ts            bash (/bin/sh -c, timeout, maxBuffer)
-  types.ts             Tool / ToolResult types
-  types/cli-markdown.d.ts
-quickstart.ts          minimal non-REPL API call
+    index.ts                  реестр инструментов (локальные + MCP)
+    tool-executor.ts          выполнение вызовов инструментов
+    safe-path.ts              валидатор путей (песочница + фильтр расширений)
+    read-file.ts              read_file (обрезка до 4000 символов)
+    write-file.ts             write_file (создание родителей, UTF-8)
+    list-dir.ts               list_dir (JSON с типами Dirent)
+    bash.ts                   bash (exec, таймаут 10с, maxBuffer)
+    grep.ts                   grep по содержимому файлов (-rn, без node_modules)
+    glob.ts                   glob-поиск файлов по паттерну
+    get-time.ts               get_time (текущая дата/время ISO)
+  mcp/
+    client.ts                 подключение к MCP-серверу
+    getMcpToolDefinitions.ts  получение определений инструментов из MCP
+  utils/
+    file.ts                   вспомогательные функции для работы с файлами
+  types/
+    cli-markdown.d.ts         типы для cli-markdown
 ```
 
-## Tools
+## Локальные инструменты
 
-Each tool handler returns `{ content, display }`. `content` goes back to the
-model as `tool_result`; `display` is a one-line terminal summary.
+Каждый обработчик возвращает `{ content, display }`. `content` отправляется модели
+как `tool_result`; `display` — однострочная сводка для терминала (в текущей версии
+не выводится в REPL напрямую, а только возвращается из handler).
 
-| Tool         | Input             | Notes                                                |
-| ------------ | ----------------- | ---------------------------------------------------- |
-| `read_file`  | `path`            | UTF-8 text, relative path only                       |
-| `write_file` | `path`, `content` | Creates parents, rejects > `MAX_WRITE_BYTES`         |
-| `list_dir`   | `path`            | Returns JSON `[{ name, type }]` for all Dirent kinds |
-| `bash`       | `command`         | `/bin/sh -c`, `BASH_TIMEOUT_MS`, `BASH_MAX_BUFFER`   |
+| Инструмент   | Вход                         | Примечания                                                              |
+| ------------ | ---------------------------- | ----------------------------------------------------------------------- |
+| `read_file`  | `path`                       | UTF-8 текст, относительный путь. **Обрезается до 4000 символов**        |
+| `write_file` | `path`, `content`            | Создаёт родителей, перезаписывает. Фильтр расширений через safe-path    |
+| `list_dir`   | `path`                       | JSON `[{ name, type }]` — типы: dir, file, symlink, block, char, и др.  |
+| `bash`       | `command`                    | `exec` в cwd, таймаут 10с, `BASH_MAX_BUFFER`                            |
+| `grep`       | `pattern` или `regex`        | `grep -rn` по проекту, исключает `node_modules`                         |
+| `glob`       | `pattern`                    | Поиск файлов по glob-паттерну, игнорирует `node_modules` и `.git`       |
+| `get_time`   | —                            | Возвращает текущее время в формате ISO                                  |
 
-All filesystem tools run through `safeResolve()`, which rejects absolute paths
-and any path that resolves outside `process.cwd()`.
+### MCP-инструменты
 
-## Configuration
+При запуске агент подключается к MCP-серверу по адресу `http://localhost:3000/mcp`
+и динамически подгружает доступные инструменты. Они исполняются через MCP-клиент,
+результат возвращается модели как `tool_result`.
 
-Edit `src/config.ts`:
+## Безопасность путей
 
-- `MODEL` — Anthropic model ID
-- `MAX_TOKENS` — per-response token cap
-- `MAX_WRITE_BYTES` — write_file size cap (default 1 MB)
-- `MAX_HISTORY_TURNS` — REPL history cap (default 40)
-- `BASH_TIMEOUT_MS` — bash hard timeout (default 30 s)
-- `BASH_MAX_BUFFER` — bash combined stdout+stderr cap (default 1 MB)
+Все файловые инструменты проходят через `getSafePath()`, который:
 
-## Security notes
+- Отклоняет абсолютные пути
+- Отклоняет пути, выходящие за `process.cwd()` (через `..`)
+- Фильтрует по **разрешённым расширениям**: `.ts`, `.js`, `.json`, `.md`, `.txt`, `.yaml`, `.toml`
 
-- `.env.local` is gitignored.
-- Filesystem tools are sandboxed to the working directory.
-- The `bash` tool has **no command allowlist** — it can run anything reachable
-  from `/bin/sh`. Only point the harness at projects where that is acceptable.
+## Конфигурация
+
+Отредактируйте `src/config.ts`:
+
+| Константа           | Значение по умолчанию | Описание                                      |
+| ------------------- | --------------------- | --------------------------------------------- |
+| `MODEL`             | `qwen2.5`             | Идентификатор модели в Ollama                 |
+| `MAX_TOKENS`        | `4096`                | Лимит токенов на ответ                        |
+| `MAX_WRITE_BYTES`   | `1_000_000`           | Заявленный лимит записи (**не применяется**)  |
+| `MAX_HISTORY_TURNS` | `40`                  | Лимит ходов истории диалога                   |
+| `BASH_TIMEOUT_MS`   | `30_000`              | Заявленный таймаут bash (**не применяется**)  |
+| `BASH_MAX_BUFFER`   | `1_000_000`           | Лимит объёма stdout+stderr bash               |
+
+## Примечания по безопасности
+
+- `.env.local` добавлен в `.gitignore`.
+- Файловые инструменты ограничены рабочей директорией и списком разрешённых расширений.
+- Инструмент `bash` не имеет белого списка команд — может запускать произвольный код.
+  Используйте только в доверенной среде.
+
+## Известные ограничения
+
+- `read_file` обрезает содержимое до 4000 символов — для больших файлов используйте
+  `grep` или `bash` с `head`/`tail`.
+- `MAX_WRITE_BYTES` определён в конфиге, но не проверяется в `write_file`.
+- `BASH_TIMEOUT_MS` определён в конфиге (30 с), но в `bash` жёстко зашит таймаут 10 с.
