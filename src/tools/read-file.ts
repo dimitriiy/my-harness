@@ -1,29 +1,30 @@
-import fs from 'node:fs/promises';
-import type { Tool } from '../types';
-import { safeResolve } from './safe-path';
+import fs from "node:fs/promises";
+import type { LocalTool } from "../types";
+import { getSafePath } from "./safe-path";
 
-export const readFile: Tool = {
+export const readFile: LocalTool = {
   definition: {
-    name: 'read_file',
+    name: "read_file",
     description:
-      'Read the contents of a text file at a path relative to the working directory. Returns the raw file contents as a UTF-8 string. Absolute paths and paths that escape the working directory are rejected.',
+      "Читает файл. Путь указывается относительно корня проекта (где package.json)",
     input_schema: {
-      type: 'object',
+      type: "object",
       properties: {
-        path: { type: 'string', description: 'Relative path to the file' },
+        path: { type: "string" },
       },
-      required: ['path'],
+      required: ["path"],
     },
   },
-  handler: async ({ path: p }) => {
-    const rel = p as string;
-    const full = safeResolve(rel);
-    const content = await fs.readFile(full, 'utf8');
-    const lines = content.split('\n').length;
-    const bytes = Buffer.byteLength(content, 'utf8');
+
+  handler: async (input) => {
+    const filePath = input.path as string;
+
+    const safePath = getSafePath(filePath);
+    const file = (await fs.readFile(safePath, "utf-8")).slice(0, 4000);
+
     return {
-      content,
-      display: `${rel} (${bytes} bytes, ${lines} lines)`,
+      content: file,
+      display: file,
     };
   },
 };

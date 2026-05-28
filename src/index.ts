@@ -1,28 +1,43 @@
-import type Anthropic from '@anthropic-ai/sdk';
-import { runAgent } from './agent/loop';
-import { renderMarkdown } from './render';
-import { readLineHighlighted } from './input';
-
-const EXIT_CMD = '/exit';
+import { runAgent } from "./agent/loop";
+import { ConversationHistory } from "./agent/conversation-history";
+import { ConsoleUI } from "./ui/console-ui";
+import { AnthropicLLMClient } from "./llm/anthropic-client";
+import { connectMcpServer } from "./mcp/client";
+import { createTools } from "./tools";
+import { ToolExecutor } from "./tools/tool-executor";
 
 async function main() {
-  let history: Anthropic.Messages.MessageParam[] = [];
+  const ui = new ConsoleUI();
+  const mcpClient = await connectMcpServer();
+  const tools = await createTools(mcpClient);
+  const llmClient = new AnthropicLLMClient();
+  const toolExecutor = new ToolExecutor(tools, mcpClient);
+  const history = new ConversationHistory();
 
-  console.log(`Chat started. Type "${EXIT_CMD}" to quit.\n`);
+  ui.print("Наивный агент запущен. Напиши сообщение. Для выхода: exit");
 
-  while (true) {
-    const userPrompt = (await readLineHighlighted()).trim();
+  try {
+    while (true) {
+      const userText = await ui.ask("You: ");
 
-    if (!userPrompt) continue;
-    if (userPrompt === EXIT_CMD) break;
+      if (userText === "exit") break;
+      if (!userText) continue;
 
-    const { reply, history: next } = await runAgent(userPrompt, history);
-    history = next;
-    console.log(`\n${renderMarkdown(reply)}\n`);
+      try {
+        const reply = await runAgent(userText, {
+          llmClient,
+          ui,
+          toolExecutor,
+          history,
+        });
+        ui.print(`\n${ui.renderMarkdown(reply)}\n`);
+      } catch (err) {
+        ui.printError(`Ошибка агента: ${err}`);
+      }
+    }
+  } finally {
+    ui.close();
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main();

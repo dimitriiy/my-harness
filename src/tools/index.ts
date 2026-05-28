@@ -1,11 +1,27 @@
-import type { Tool } from '../types';
-import { readFile } from './read-file';
-import { writeFile } from './write-file';
-import { listDir } from './list-dir';
-import { bash } from './bash';
+import type { Client } from "@modelcontextprotocol/sdk/client";
+import { getMcpToolDefinitions } from "../mcp/getMcpToolDefinitions";
+import type { LocalTool, BaseTool } from "../types";
+import { bash } from "./bash";
+import { getTime } from "./get-time";
+import { glob } from "./glob";
+import { grep } from "./grep";
+import { listDir } from "./list-dir";
+import { readFile } from "./read-file";
+import { writeFile } from "./write-file";
 
-export const tools: Tool[] = [readFile, writeFile, listDir, bash];
+export const createTools = async (mcpClient: Client) => {
+  const mcpTools = await getMcpToolDefinitions(mcpClient);
 
-export const toolMap = new Map(tools.map((t) => [t.definition.name, t]));
+  const tools: (LocalTool | BaseTool)[] = [
+    getTime,
+    writeFile,
+    bash,
+    readFile,
+    listDir,
+    grep,
+    glob,
+    ...mcpTools,
+  ];
 
-export const toolDefinitions = tools.map((t) => t.definition);
+  return tools;
+};

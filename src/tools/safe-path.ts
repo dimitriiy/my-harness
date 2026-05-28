@@ -1,18 +1,39 @@
-import path from 'node:path';
+import { fileURLToPath } from "node:url";
+import path from "node:path";
 
-// Resolves a model-supplied relative path against the sandbox root (cwd).
-// Rejects absolute paths and any path that escapes the root via "..".
-export function safeResolve(rel: string, root = process.cwd()): string {
-  if (typeof rel !== 'string' || rel.length === 0) {
-    throw new Error('Path must be a non-empty string.');
+export const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const ALLOWED_ROOT = process.cwd();
+
+const ALLOWED_EXTENSIONS = new Set([
+  ".ts",
+  ".js",
+  ".json",
+  ".md",
+  ".txt",
+  ".yaml",
+  ".toml",
+]);
+
+export const getSafePath = (pathName: string, root = ALLOWED_ROOT) => {
+  try {
+    const resolvedPath = path.resolve(root, pathName);
+    const extension = path.extname(resolvedPath);
+    const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
+
+    if (Boolean(extension && !ALLOWED_EXTENSIONS.has(extension))) {
+      throw new Error("File not allowed");
+    }
+
+    const relative = path.relative(root, resolvedPath);
+
+    if (relative.startsWith("..") || !resolvedPath.startsWith(rootWithSep)) {
+      throw new Error("Path out of range");
+    }
+
+    return resolvedPath;
+  } catch (e) {
+    console.log(e);
+    throw new Error(`File not found: ${pathName}`);
   }
-  if (path.isAbsolute(rel)) {
-    throw new Error(`Absolute paths are not allowed: ${rel}`);
-  }
-  const full = path.resolve(root, rel);
-  const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
-  if (full !== root && !full.startsWith(rootWithSep)) {
-    throw new Error(`Path escapes sandbox: ${rel}`);
-  }
-  return full;
-}
+};

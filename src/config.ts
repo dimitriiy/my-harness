@@ -1,8 +1,8 @@
-import dotenv from 'dotenv';
+import dotenv from "dotenv";
 
-dotenv.config({ path: '.env.local' });
+dotenv.config({ path: ".env.local" });
 
-export const MODEL = 'claude-sonnet-4-6';
+export const MODEL = "qwen2.5";
 export const MAX_TOKENS = 4096;
 export const MAX_WRITE_BYTES = 1_000_000; // 1 MB per write_file call
 export const MAX_HISTORY_TURNS = 40; // user+assistant+tool-result turns kept

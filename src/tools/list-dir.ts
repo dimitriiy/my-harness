@@ -1,53 +1,37 @@
-import fs from 'node:fs/promises';
-import type { Dirent } from 'node:fs';
-import type { Tool } from '../types';
-import { safeResolve } from './safe-path';
+import type { LocalTool } from "../types";
+import fs from "fs/promises";
+import { direntType } from "../utils/file";
+import { getSafePath } from "./safe-path";
 
-function direntType(e: Dirent): string {
-  switch (true) {
-    case e.isDirectory():
-      return 'dir';
-    case e.isFile():
-      return 'file';
-    case e.isSymbolicLink():
-      return 'symlink';
-    case e.isBlockDevice():
-      return 'block';
-    case e.isCharacterDevice():
-      return 'char';
-    case e.isFIFO():
-      return 'fifo';
-    case e.isSocket():
-      return 'socket';
-    default:
-      return 'unknown';
-  }
-}
-
-export const listDir: Tool = {
+export const listDir: LocalTool = {
   definition: {
-    name: 'list_dir',
+    name: "list_dir",
     description:
-      'List files and directories at a path relative to the working directory. Returns a JSON array of { name, type } objects, where type is one of: dir, file, symlink, block, char, fifo, socket, unknown. Paths that escape the working directory are rejected.',
+      "List files and directories at a path relative to the working directory. Returns a JSON array of { name, type } objects, where type is one of: dir, file, symlink, block, char, fifo, socket, unknown. Paths that escape the working directory are rejected.",
     input_schema: {
-      type: 'object',
+      type: "object",
       properties: {
-        path: { type: 'string', description: 'Relative path (use "." for cwd)' },
+        path: {
+          type: "string",
+          description: 'Relative path (use "." for cwd)',
+        },
       },
-      required: ['path'],
     },
   },
-  handler: async ({ path: p }) => {
-    const rel = p as string;
-    const full = safeResolve(rel);
-    const entries = await fs.readdir(full, { withFileTypes: true });
-    const payload = entries.map((e) => ({
-      name: e.name,
-      type: direntType(e),
+
+  handler: async (input: Record<string, unknown>) => {
+    const safePath = getSafePath(input.path as string);
+
+    const dirs = await fs.readdir(safePath, { withFileTypes: true });
+
+    const payload = dirs.map((dir) => ({
+      name: dir.name,
+      type: direntType(dir),
     }));
+
     return {
       content: JSON.stringify(payload, null, 2),
-      display: `${rel} (${payload.length} entries)`,
+      display: `${safePath} (${payload.length} entries)`,
     };
   },
 };
